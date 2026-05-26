@@ -51,6 +51,12 @@ export async function GET(request: NextRequest) {
       ${to ? `AND ${pautaDateExpr} <= @to` : ""}
     `;
 
+    const detalleFilter = `
+      WHERE r.call_id IS NOT NULL
+      ${from ? "AND DATE(COALESCE(r.fecha_analisis, r.created_at)) >= @from" : ""}
+      ${to ? "AND DATE(COALESCE(r.fecha_analisis, r.created_at)) <= @to" : ""}
+    `;
+
     const bq = new BigQuery({ projectId });
 
     const [kpiRows] = await bq.query({
@@ -164,8 +170,11 @@ export async function GET(request: NextRequest) {
           c.cumplimiento_qa
         FROM \`${projectId}.${dataset}.speech_qa_resumen_llamada\` r
         LEFT JOIN cumplimiento c ON r.call_id = c.call_id
-        ${resumenFilter}
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY r.call_id ORDER BY COALESCE(r.fecha_analisis, r.created_at) DESC) = 1
+        ${detalleFilter}
+        QUALIFY ROW_NUMBER() OVER (
+          PARTITION BY r.call_id
+          ORDER BY COALESCE(r.fecha_analisis, r.created_at) DESC
+        ) = 1
         ORDER BY fecha_analisis DESC
         LIMIT 500
       `,
