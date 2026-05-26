@@ -9,31 +9,43 @@ type Kpis = {
   llamadas_riesgo_reclamo_futuro: number;
   llamadas_fuga: number;
   porcentaje_riesgo_fuga: number;
-  silencio_promedio: number;
-  silencio_mas_largo_promedio: number;
-  silencios_criticos: number;
+};
+
+type DetalleRow = {
+  call_id: string;
+  fecha_analisis: string;
+  motivo_detectado_nombre: string;
+  resultado_general_nombre: string;
+  nivel_cumplimiento_general: string;
+  score_experiencia_cliente: number;
+  cumplimiento_qa: number;
+  riesgo_reclamo_futuro_detectado: boolean;
+  fuga_explicita_cliente_detectado: boolean;
+  resumen_ejecutivo: string;
+  player_url: string;
 };
 
 type ApiData = {
   ok: boolean;
+  filters: { from: string | null; to: string | null };
   kpis: Kpis;
   bloques: { bloque: string; cumplimiento: number }[];
   incumplidos: { subatributo: string; cantidad: number }[];
   motivos: { motivo: string; cantidad: number }[];
   resultadoQa: { resultado: string; cantidad: number }[];
-  detalle: {
-    call_id: string;
-    fecha_analisis: string;
-    motivo_detectado_nombre: string;
-    resultado_general_nombre: string;
-    nivel_cumplimiento_general: string;
-    score_experiencia_cliente: number;
-    riesgo_reclamo_futuro_detectado: boolean;
-    fuga_explicita_cliente_detectado: boolean;
-    resumen_ejecutivo: string;
-  }[];
+  detalle: DetalleRow[];
   error?: string;
 };
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
 
 function formatPct(value: number): string {
   return `${Number(value || 0).toFixed(1)}%`;
@@ -48,6 +60,8 @@ function maxValue<T>(rows: T[], getter: (row: T) => number): number {
 }
 
 export default function AnaliticaPage() {
+  const [from, setFrom] = useState(daysAgo(30));
+  const [to, setTo] = useState(today());
   const [data, setData] = useState<ApiData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +71,14 @@ export default function AnaliticaPage() {
       setLoading(true);
       setError(null);
 
-      const response = await fetch("/api/qa-dashboard", { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+
+      const response = await fetch(`/api/qa-dashboard?${params.toString()}`, {
+        cache: "no-store",
+      });
+
       const json = (await response.json()) as ApiData;
 
       if (!json.ok) {
@@ -74,13 +95,14 @@ export default function AnaliticaPage() {
 
   useEffect(() => {
     void loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resultadoTotal = useMemo(() => {
     return data?.resultadoQa.reduce((acc, item) => acc + item.cantidad, 0) || 1;
   }, [data]);
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <main className="min-h-screen bg-slate-50 p-6">
         <div className="rounded-2xl border bg-white p-8 shadow-sm">
@@ -114,34 +136,56 @@ export default function AnaliticaPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-6">
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="mb-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Panel QA Speech Analytics
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Datos reales desde BigQuery: cumplimiento, riesgos, motivos y silencios.
+            Cumplimiento por llamadas únicas, riesgos, motivos y acceso directo al reproductor.
           </p>
         </div>
 
-        <button
-          onClick={() => void loadData()}
-          className="w-fit rounded-xl border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
-        >
-          Actualizar
-        </button>
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border bg-white p-3 shadow-sm">
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Desde
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="rounded-lg border px-3 py-2 text-sm text-slate-800"
+            />
+          </label>
+
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Hasta
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="rounded-lg border px-3 py-2 text-sm text-slate-800"
+            />
+          </label>
+
+          <button
+            onClick={() => void loadData()}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+          >
+            Aplicar filtros
+          </button>
+        </div>
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard title="Llamadas analizadas" value={formatNumber(k.total_llamadas)} helper="COUNT DISTINCT call_id" />
-        <KpiCard title="Cumplimiento QA" value={formatPct(k.cumplimiento_qa)} helper="SUM obtenido / objetivo" tone="green" />
-        <KpiCard title="Score experiencia" value={k.score_experiencia_promedio.toFixed(1)} helper="AVG score experiencia" tone="blue" />
-        <KpiCard title="Riesgo futuro" value={formatNumber(k.llamadas_riesgo_reclamo_futuro)} helper="riesgo reclamo futuro" tone="amber" />
-        <KpiCard title="% riesgo fuga" value={formatPct(k.porcentaje_riesgo_fuga)} helper="fuga explícita / total" tone="red" />
+        <KpiCard title="Llamadas analizadas" value={formatNumber(k.total_llamadas)} />
+        <KpiCard title="Cumplimiento QA" value={formatPct(k.cumplimiento_qa)} tone="green" />
+        <KpiCard title="Score experiencia" value={k.score_experiencia_promedio.toFixed(1)} tone="blue" />
+        <KpiCard title="Riesgo reclamo futuro" value={formatNumber(k.llamadas_riesgo_reclamo_futuro)} tone="amber" />
+        <KpiCard title="% riesgo fuga" value={formatPct(k.porcentaje_riesgo_fuga)} tone="red" />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel title="Cumplimiento por bloque" subtitle="speech_qa_resumen_bloques">
+        <Panel title="Cumplimiento por bloque" subtitle="Por llamada única">
           <div className="space-y-4">
             {data.bloques.map((row) => (
               <BarRow
@@ -154,7 +198,7 @@ export default function AnaliticaPage() {
           </div>
         </Panel>
 
-        <Panel title="Distribución QA" subtitle="speech_qa_pauta_long">
+        <Panel title="Distribución QA" subtitle="Cantidad de llamadas únicas">
           <div className="space-y-3">
             {data.resultadoQa.map((row) => {
               const pct = (row.cantidad / resultadoTotal) * 100;
@@ -178,8 +222,8 @@ export default function AnaliticaPage() {
         </Panel>
       </section>
 
-      <section className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Panel title="Ítems más incumplidos" subtitle="resultado = no_cumple">
+      <section className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Panel title="Ítems más incumplidos" subtitle="Call ID único">
           <div className="space-y-3">
             {data.incumplidos.map((row) => (
               <BarRow
@@ -193,7 +237,7 @@ export default function AnaliticaPage() {
           </div>
         </Panel>
 
-        <Panel title="Motivos de contacto" subtitle="speech_qa_resumen_llamada">
+        <Panel title="Motivos de contacto" subtitle="Call ID único">
           <div className="space-y-3">
             {data.motivos.map((row) => (
               <BarRow
@@ -206,36 +250,39 @@ export default function AnaliticaPage() {
             ))}
           </div>
         </Panel>
-
-        <Panel title="Silencios" subtitle="speech_analytics_timeline">
-          <div className="grid gap-3">
-            <MiniMetric label="Silencio promedio" value={formatPct(k.silencio_promedio)} />
-            <MiniMetric label="Silencio más largo promedio" value={`${k.silencio_mas_largo_promedio.toFixed(1)}s`} />
-            <MiniMetric label="Silencios críticos" value={formatNumber(k.silencios_criticos)} />
-          </div>
-        </Panel>
       </section>
 
       <section className="mt-4">
-        <Panel title="Detalle de llamadas" subtitle="Últimas 20 llamadas">
+        <Panel title="Todas las llamadas analizadas" subtitle="Detalle con acceso al reproductor">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px] border-collapse text-sm">
+            <table className="w-full min-w-[1200px] border-collapse text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <th className="p-3">Acción</th>
                   <th className="p-3">Call ID</th>
                   <th className="p-3">Fecha</th>
                   <th className="p-3">Motivo</th>
                   <th className="p-3">Resultado</th>
                   <th className="p-3">Nivel</th>
+                  <th className="p-3">Cumplimiento</th>
                   <th className="p-3">Score</th>
-                  <th className="p-3">Riesgo</th>
+                  <th className="p-3">Riesgo reclamo</th>
                   <th className="p-3">Fuga</th>
                   <th className="p-3">Resumen</th>
                 </tr>
               </thead>
+
               <tbody>
                 {data.detalle.map((row) => (
-                  <tr key={row.call_id} className="border-b last:border-0">
+                  <tr key={row.call_id} className="border-b align-top last:border-0">
+                    <td className="p-3">
+                      <a
+                        href={row.player_url}
+                        className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+                      >
+                        Escuchar llamada
+                      </a>
+                    </td>
                     <td className="p-3 font-mono text-xs text-slate-700">{row.call_id}</td>
                     <td className="p-3 text-slate-600">
                       {row.fecha_analisis ? new Date(row.fecha_analisis).toLocaleString("es-CL") : ""}
@@ -247,14 +294,11 @@ export default function AnaliticaPage() {
                         {row.nivel_cumplimiento_general || "N/A"}
                       </span>
                     </td>
+                    <td className="p-3 font-semibold">{formatPct(row.cumplimiento_qa)}</td>
                     <td className="p-3 font-semibold">{row.score_experiencia_cliente.toFixed(1)}</td>
-                    <td className="p-3">
-                      <BooleanBadge value={row.riesgo_reclamo_futuro_detectado} />
-                    </td>
-                    <td className="p-3">
-                      <BooleanBadge value={row.fuga_explicita_cliente_detectado} />
-                    </td>
-                    <td className="max-w-[360px] p-3 text-slate-600">{row.resumen_ejecutivo}</td>
+                    <td className="p-3"><BooleanBadge value={row.riesgo_reclamo_futuro_detectado} /></td>
+                    <td className="p-3"><BooleanBadge value={row.fuga_explicita_cliente_detectado} /></td>
+                    <td className="max-w-[420px] p-3 text-slate-600">{row.resumen_ejecutivo}</td>
                   </tr>
                 ))}
               </tbody>
@@ -269,12 +313,10 @@ export default function AnaliticaPage() {
 function KpiCard({
   title,
   value,
-  helper,
   tone = "slate",
 }: {
   title: string;
   value: string;
-  helper: string;
   tone?: "slate" | "green" | "blue" | "amber" | "red";
 }) {
   const toneClass = {
@@ -289,12 +331,19 @@ function KpiCard({
     <div className="rounded-2xl border bg-white p-5 shadow-sm">
       <p className="text-sm font-medium text-slate-500">{title}</p>
       <p className={`mt-2 text-3xl font-bold tracking-tight ${toneClass}`}>{value}</p>
-      <p className="mt-3 text-xs text-slate-400">{helper}</p>
     </div>
   );
 }
 
-function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function Panel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-2xl border bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -328,7 +377,7 @@ function BarRow({
   }[tone];
 
   return (
-    <div className="grid grid-cols-[minmax(140px,220px)_1fr_80px] items-center gap-3">
+    <div className="grid grid-cols-[minmax(160px,240px)_1fr_90px] items-center gap-3">
       <div className="truncate text-sm font-medium text-slate-700" title={label}>
         {label}
       </div>
@@ -336,15 +385,6 @@ function BarRow({
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(2, Math.min(width, 100))}%` }} />
       </div>
       <div className="text-right text-sm font-semibold text-slate-600">{value}</div>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border bg-slate-50 p-4">
-      <p className="text-xs font-medium text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-bold text-slate-900">{value}</p>
     </div>
   );
 }
