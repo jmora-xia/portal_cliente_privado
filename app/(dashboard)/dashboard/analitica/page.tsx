@@ -2,24 +2,29 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Kpis = {
-  total_llamadas: number;
-  cumplimiento_qa: number;
-  score_experiencia_promedio: number;
-  llamadas_riesgo_reclamo_futuro: number;
-  llamadas_fuga: number;
-  porcentaje_riesgo_fuga: number;
+type MotivoDrill = {
+  tipo_contacto_codigo: string;
+  categoria_detectada: string;
+  motivo_detectado_nombre: string;
+  submotivo_detectado_nombre: string;
+  cantidad: number;
 };
 
 type DetalleRow = {
   call_id: string;
   fecha_analisis: string;
+  tipo_contacto_codigo: string;
+  categoria_detectada: string;
+  motivo_detectado: string;
   motivo_detectado_nombre: string;
+  submotivo_detectado: string;
+  submotivo_detectado_nombre: string;
   resultado_general_nombre: string;
   nivel_cumplimiento_general: string;
   score_experiencia_cliente: number;
   cumplimiento_qa: number;
   riesgo_reclamo_futuro_detectado: boolean;
+  riesgo_abandono_detectado: boolean;
   fuga_explicita_cliente_detectado: boolean;
   resumen_ejecutivo: string;
   player_url: string;
@@ -27,278 +32,270 @@ type DetalleRow = {
 
 type ApiData = {
   ok: boolean;
-  filters: { from: string | null; to: string | null };
-  kpis: Kpis;
+  kpis: {
+    total_llamadas: number;
+    cumplimiento_qa: number;
+    score_experiencia_promedio: number;
+    llamadas_riesgo_reclamo_futuro: number;
+    llamadas_riesgo_abandono: number;
+    llamadas_fuga: number;
+    porcentaje_riesgo_fuga: number;
+  };
+  motivosDrill: MotivoDrill[];
   bloques: { bloque: string; cumplimiento: number }[];
   incumplidos: { subatributo: string; cantidad: number }[];
-  motivos: { motivo: string; cantidad: number }[];
-  resultadoQa: { resultado: string; cantidad: number }[];
   detalle: DetalleRow[];
   error?: string;
 };
 
-function today(): string {
+function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function daysAgo(days: number): string {
+function daysAgo(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
 }
 
-function formatPct(value: number): string {
+function pct(value: number) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
-function formatNumber(value: number): string {
+function n(value: number) {
   return new Intl.NumberFormat("es-CL").format(Number(value || 0));
 }
 
-function maxValue<T>(rows: T[], getter: (row: T) => number): number {
+function max<T>(rows: T[], getter: (row: T) => number) {
   return Math.max(1, ...rows.map(getter));
 }
 
 export default function AnaliticaPage() {
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
+  const [drill, setDrill] = useState<"tipo" | "categoria" | "motivo" | "submotivo">("tipo");
+  const [selectedTipo, setSelectedTipo] = useState("");
+  const [selectedCategoria, setSelectedCategoria] = useState("");
+  const [selectedMotivo, setSelectedMotivo] = useState("");
   const [data, setData] = useState<ApiData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   async function loadData() {
-    try {
-      setLoading(true);
-      setError(null);
+    setError("");
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
 
-      const params = new URLSearchParams();
-      if (from) params.set("from", from);
-      if (to) params.set("to", to);
+    const res = await fetch(`/api/qa-dashboard?${params.toString()}`, { cache: "no-store" });
+    const json = (await res.json()) as ApiData;
 
-      const response = await fetch(`/api/qa-dashboard?${params.toString()}`, {
-        cache: "no-store",
-      });
-
-      const json = (await response.json()) as ApiData;
-
-      if (!json.ok) {
-        throw new Error(json.error || "No se pudo cargar el dashboard");
-      }
-
-      setData(json);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setLoading(false);
+    if (!json.ok) {
+      setError(json.error || "Error cargando datos");
+      return;
     }
+
+    setData(json);
   }
 
   useEffect(() => {
     void loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const resultadoTotal = useMemo(() => {
-    return data?.resultadoQa.reduce((acc, item) => acc + item.cantidad, 0) || 1;
-  }, [data]);
+  const pieRows = useMemo(() => {
+    const rows = data?.motivosDrill || [];
+    const filtered = rows.filter((r) => {
+      if (selectedTipo && r.tipo_contacto_codigo !== selectedTipo) return false;
+      if (selectedCategoria && r.categoria_detectada !== selectedCategoria) return false;
+      if (selectedMotivo && r.motivo_detectado_nombre !== selectedMotivo) return false;
+      return true;
+    });
 
-  if (loading && !data) {
-    return (
-      <main className="min-h-screen bg-slate-50 p-6">
-        <div className="rounded-2xl border bg-white p-8 shadow-sm">
-          <p className="text-slate-500">Cargando datos desde BigQuery...</p>
-        </div>
-      </main>
-    );
+    const key =
+      drill === "tipo"
+        ? "tipo_contacto_codigo"
+        : drill === "categoria"
+          ? "categoria_detectada"
+          : drill === "motivo"
+            ? "motivo_detectado_nombre"
+            : "submotivo_detectado_nombre";
+
+    const map = new Map<string, number>();
+
+    filtered.forEach((r) => {
+      const label = String(r[key] || "Sin dato");
+      map.set(label, (map.get(label) || 0) + r.cantidad);
+    });
+
+    return [...map.entries()]
+      .map(([label, cantidad]) => ({ label, cantidad }))
+      .sort((a, b) => b.cantidad - a.cantidad)
+      .slice(0, 10);
+  }, [data, drill, selectedTipo, selectedCategoria, selectedMotivo]);
+
+  if (error) {
+    return <div className="p-6 text-red-700">Error: {error}</div>;
   }
 
-  if (error || !data) {
-    return (
-      <main className="min-h-screen bg-slate-50 p-6">
-        <div className="rounded-2xl border border-red-200 bg-white p-8 shadow-sm">
-          <h1 className="text-lg font-semibold text-red-700">Error al cargar dashboard</h1>
-          <p className="mt-2 text-sm text-slate-600">{error}</p>
-          <button
-            onClick={() => void loadData()}
-            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Reintentar
-          </button>
-        </div>
-      </main>
-    );
+  if (!data) {
+    return <div className="p-6 text-slate-500">Cargando dashboard...</div>;
   }
 
   const k = data.kpis;
-  const maxBloque = maxValue(data.bloques, (r) => r.cumplimiento);
-  const maxIncumplidos = maxValue(data.incumplidos, (r) => r.cantidad);
-  const maxMotivos = maxValue(data.motivos, (r) => r.cantidad);
+  const maxPie = max(pieRows, (r) => r.cantidad);
+  const maxBloques = max(data.bloques, (r) => r.cumplimiento);
+  const maxInc = max(data.incumplidos, (r) => r.cantidad);
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-6">
-      <div className="mb-6 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Panel QA Speech Analytics
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Cumplimiento por llamadas únicas, riesgos, motivos y acceso directo al reproductor.
+          <h1 className="text-2xl font-bold text-slate-900">Panel QA Speech Analytics</h1>
+          <p className="text-sm text-slate-500">
+            Vista operativa tipo Genesys: llamadas únicas, motivos con drill-down y acceso al reproductor.
           </p>
         </div>
 
         <div className="flex flex-wrap items-end gap-3 rounded-2xl border bg-white p-3 shadow-sm">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Desde
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="rounded-lg border px-3 py-2 text-sm text-slate-800"
-            />
+            <input className="rounded-lg border px-3 py-2 text-sm" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </label>
-
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Hasta
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="rounded-lg border px-3 py-2 text-sm text-slate-800"
-            />
+            <input className="rounded-lg border px-3 py-2 text-sm" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
-
-          <button
-            onClick={() => void loadData()}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
-          >
-            Aplicar filtros
+          <button onClick={() => void loadData()} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+            Aplicar
           </button>
         </div>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard title="Llamadas analizadas" value={formatNumber(k.total_llamadas)} />
-        <KpiCard title="Cumplimiento QA" value={formatPct(k.cumplimiento_qa)} tone="green" />
-        <KpiCard title="Score experiencia" value={k.score_experiencia_promedio.toFixed(1)} tone="blue" />
-        <KpiCard title="Riesgo reclamo futuro" value={formatNumber(k.llamadas_riesgo_reclamo_futuro)} tone="amber" />
-        <KpiCard title="% riesgo fuga" value={formatPct(k.porcentaje_riesgo_fuga)} tone="red" />
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <Kpi title="Llamadas" value={n(k.total_llamadas)} />
+        <Kpi title="Cumplimiento QA" value={pct(k.cumplimiento_qa)} tone="green" />
+        <Kpi title="Score experiencia" value={k.score_experiencia_promedio.toFixed(1)} tone="blue" />
+        <Kpi title="Riesgo reclamo" value={n(k.llamadas_riesgo_reclamo_futuro)} tone="amber" />
+        <Kpi title="Riesgo abandono" value={n(k.llamadas_riesgo_abandono)} tone="amber" />
+        <Kpi title="% fuga" value={pct(k.porcentaje_riesgo_fuga)} tone="red" />
       </section>
 
       <section className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel title="Cumplimiento por bloque" subtitle="Por llamada única">
-          <div className="space-y-4">
-            {data.bloques.map((row) => (
-              <BarRow
-                key={row.bloque}
-                label={row.bloque || "Sin bloque"}
-                value={formatPct(row.cumplimiento)}
-                width={(row.cumplimiento / maxBloque) * 100}
-              />
+        <Panel title="Motivos de contacto" subtitle="Drill-down: tipo → categoría → motivo → submotivo">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(["tipo", "categoria", "motivo", "submotivo"] as const).map((level) => (
+              <button
+                key={level}
+                onClick={() => setDrill(level)}
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  drill === level ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {level}
+              </button>
             ))}
+            <button
+              onClick={() => {
+                setSelectedTipo("");
+                setSelectedCategoria("");
+                setSelectedMotivo("");
+                setDrill("tipo");
+              }}
+              className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white"
+            >
+              Reiniciar drill
+            </button>
           </div>
-        </Panel>
 
-        <Panel title="Distribución QA" subtitle="Cantidad de llamadas únicas">
           <div className="space-y-3">
-            {data.resultadoQa.map((row) => {
-              const pct = (row.cantidad / resultadoTotal) * 100;
-              return (
-                <BarRow
-                  key={row.resultado}
-                  label={row.resultado || "Sin resultado"}
-                  value={`${formatNumber(row.cantidad)} · ${formatPct(pct)}`}
-                  width={pct}
-                  tone={
-                    row.resultado === "cumple"
-                      ? "green"
-                      : row.resultado === "no_cumple"
-                        ? "red"
-                        : "slate"
+            {pieRows.map((row) => (
+              <button
+                key={row.label}
+                onClick={() => {
+                  if (drill === "tipo") {
+                    setSelectedTipo(row.label);
+                    setDrill("categoria");
+                  } else if (drill === "categoria") {
+                    setSelectedCategoria(row.label);
+                    setDrill("motivo");
+                  } else if (drill === "motivo") {
+                    setSelectedMotivo(row.label);
+                    setDrill("submotivo");
                   }
-                />
-              );
-            })}
-          </div>
-        </Panel>
-      </section>
-
-      <section className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Panel title="Ítems más incumplidos" subtitle="Call ID único">
-          <div className="space-y-3">
-            {data.incumplidos.map((row) => (
-              <BarRow
-                key={row.subatributo}
-                label={row.subatributo || "Sin subatributo"}
-                value={formatNumber(row.cantidad)}
-                width={(row.cantidad / maxIncumplidos) * 100}
-                tone="red"
-              />
+                }}
+                className="grid w-full grid-cols-[220px_1fr_70px] items-center gap-3 text-left"
+              >
+                <span className="truncate text-sm font-semibold text-slate-700">{row.label}</span>
+                <span className="h-3 overflow-hidden rounded-full bg-slate-100">
+                  <span className="block h-full rounded-full bg-blue-500" style={{ width: `${(row.cantidad / maxPie) * 100}%` }} />
+                </span>
+                <span className="text-right text-sm font-bold text-slate-600">{n(row.cantidad)}</span>
+              </button>
             ))}
           </div>
         </Panel>
 
-        <Panel title="Motivos de contacto" subtitle="Call ID único">
+        <Panel title="Cumplimiento por bloque" subtitle="Promedio por llamadas">
           <div className="space-y-3">
-            {data.motivos.map((row) => (
-              <BarRow
-                key={row.motivo}
-                label={row.motivo || "Sin motivo"}
-                value={formatNumber(row.cantidad)}
-                width={(row.cantidad / maxMotivos) * 100}
-                tone="blue"
-              />
+            {data.bloques.map((r) => (
+              <Bar key={r.bloque} label={r.bloque} value={pct(r.cumplimiento)} width={(r.cumplimiento / maxBloques) * 100} />
             ))}
           </div>
         </Panel>
       </section>
 
       <section className="mt-4">
-        <Panel title="Todas las llamadas analizadas" subtitle="Detalle con acceso al reproductor">
+        <Panel title="Ítems más incumplidos" subtitle="COUNT DISTINCT call_id">
+          <div className="space-y-3">
+            {data.incumplidos.map((r) => (
+              <Bar key={r.subatributo} label={r.subatributo} value={n(r.cantidad)} width={(r.cantidad / maxInc) * 100} tone="red" />
+            ))}
+          </div>
+        </Panel>
+      </section>
+
+      <section className="mt-4">
+        <Panel title="Todas las llamadas" subtitle="Botón directo al reproductor">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1200px] border-collapse text-sm">
+            <table className="w-full min-w-[1500px] border-collapse text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs uppercase text-slate-500">
                   <th className="p-3">Acción</th>
                   <th className="p-3">Call ID</th>
                   <th className="p-3">Fecha</th>
+                  <th className="p-3">Tipo</th>
+                  <th className="p-3">Categoría</th>
                   <th className="p-3">Motivo</th>
-                  <th className="p-3">Resultado</th>
+                  <th className="p-3">Submotivo</th>
                   <th className="p-3">Nivel</th>
-                  <th className="p-3">Cumplimiento</th>
+                  <th className="p-3">Cumpl.</th>
                   <th className="p-3">Score</th>
-                  <th className="p-3">Riesgo reclamo</th>
+                  <th className="p-3">Reclamo</th>
+                  <th className="p-3">Abandono</th>
                   <th className="p-3">Fuga</th>
                   <th className="p-3">Resumen</th>
                 </tr>
               </thead>
-
               <tbody>
-                {data.detalle.map((row) => (
-                  <tr key={row.call_id} className="border-b align-top last:border-0">
+                {data.detalle.map((r) => (
+                  <tr key={r.call_id} className="border-b align-top last:border-0">
                     <td className="p-3">
-                      <a
-                        href={row.player_url}
-                        className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
-                      >
+                      <a href={r.player_url} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">
                         Escuchar llamada
                       </a>
                     </td>
-                    <td className="p-3 font-mono text-xs text-slate-700">{row.call_id}</td>
-                    <td className="p-3 text-slate-600">
-                      {row.fecha_analisis ? new Date(row.fecha_analisis).toLocaleString("es-CL") : ""}
-                    </td>
-                    <td className="p-3">{row.motivo_detectado_nombre}</td>
-                    <td className="p-3">{row.resultado_general_nombre}</td>
-                    <td className="p-3">
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
-                        {row.nivel_cumplimiento_general || "N/A"}
-                      </span>
-                    </td>
-                    <td className="p-3 font-semibold">{formatPct(row.cumplimiento_qa)}</td>
-                    <td className="p-3 font-semibold">{row.score_experiencia_cliente.toFixed(1)}</td>
-                    <td className="p-3"><BooleanBadge value={row.riesgo_reclamo_futuro_detectado} /></td>
-                    <td className="p-3"><BooleanBadge value={row.fuga_explicita_cliente_detectado} /></td>
-                    <td className="max-w-[420px] p-3 text-slate-600">{row.resumen_ejecutivo}</td>
+                    <td className="p-3 font-mono text-xs">{r.call_id}</td>
+                    <td className="p-3">{r.fecha_analisis ? new Date(r.fecha_analisis).toLocaleString("es-CL") : ""}</td>
+                    <td className="p-3">{r.tipo_contacto_codigo}</td>
+                    <td className="p-3">{r.categoria_detectada}</td>
+                    <td className="p-3">{r.motivo_detectado_nombre || r.motivo_detectado}</td>
+                    <td className="p-3">{r.submotivo_detectado_nombre || r.submotivo_detectado}</td>
+                    <td className="p-3">{r.nivel_cumplimiento_general}</td>
+                    <td className="p-3 font-bold">{pct(r.cumplimiento_qa)}</td>
+                    <td className="p-3 font-bold">{r.score_experiencia_cliente.toFixed(1)}</td>
+                    <td className="p-3"><Bool value={r.riesgo_reclamo_futuro_detectado} /></td>
+                    <td className="p-3"><Bool value={r.riesgo_abandono_detectado} /></td>
+                    <td className="p-3"><Bool value={r.fuga_explicita_cliente_detectado} /></td>
+                    <td className="max-w-[420px] p-3 text-slate-600">{r.resumen_ejecutivo}</td>
                   </tr>
                 ))}
               </tbody>
@@ -310,16 +307,8 @@ export default function AnaliticaPage() {
   );
 }
 
-function KpiCard({
-  title,
-  value,
-  tone = "slate",
-}: {
-  title: string;
-  value: string;
-  tone?: "slate" | "green" | "blue" | "amber" | "red";
-}) {
-  const toneClass = {
+function Kpi({ title, value, tone = "slate" }: { title: string; value: string; tone?: "slate" | "green" | "blue" | "amber" | "red" }) {
+  const color = {
     slate: "text-slate-900",
     green: "text-emerald-700",
     blue: "text-blue-700",
@@ -330,72 +319,39 @@ function KpiCard({
   return (
     <div className="rounded-2xl border bg-white p-5 shadow-sm">
       <p className="text-sm font-medium text-slate-500">{title}</p>
-      <p className={`mt-2 text-3xl font-bold tracking-tight ${toneClass}`}>{value}</p>
+      <p className={`mt-2 text-3xl font-bold ${color}`}>{value}</p>
     </div>
   );
 }
 
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
+function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-base font-bold text-slate-900">{title}</h2>
-        <span className="rounded-full border bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-500">
-          {subtitle}
-        </span>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="font-bold text-slate-900">{title}</h2>
+        <span className="rounded-full border bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-500">{subtitle}</span>
       </div>
       {children}
     </div>
   );
 }
 
-function BarRow({
-  label,
-  value,
-  width,
-  tone = "green",
-}: {
-  label: string;
-  value: string;
-  width: number;
-  tone?: "green" | "red" | "blue" | "amber" | "slate";
-}) {
-  const color = {
-    green: "bg-emerald-500",
-    red: "bg-red-500",
-    blue: "bg-blue-500",
-    amber: "bg-amber-500",
-    slate: "bg-slate-400",
-  }[tone];
-
+function Bar({ label, value, width, tone = "green" }: { label: string; value: string; width: number; tone?: "green" | "red" }) {
+  const color = tone === "red" ? "bg-red-500" : "bg-emerald-500";
   return (
-    <div className="grid grid-cols-[minmax(160px,240px)_1fr_90px] items-center gap-3">
-      <div className="truncate text-sm font-medium text-slate-700" title={label}>
-        {label}
-      </div>
+    <div className="grid grid-cols-[260px_1fr_80px] items-center gap-3">
+      <div className="truncate text-sm font-medium text-slate-700">{label}</div>
       <div className="h-3 overflow-hidden rounded-full bg-slate-100">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(2, Math.min(width, 100))}%` }} />
       </div>
-      <div className="text-right text-sm font-semibold text-slate-600">{value}</div>
+      <div className="text-right text-sm font-bold text-slate-600">{value}</div>
     </div>
   );
 }
 
-function BooleanBadge({ value }: { value: boolean }) {
+function Bool({ value }: { value: boolean }) {
   return (
-    <span
-      className={`rounded-full px-2 py-1 text-xs font-bold ${
-        value ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
-      }`}
-    >
+    <span className={`rounded-full px-2 py-1 text-xs font-bold ${value ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
       {value ? "Sí" : "No"}
     </span>
   );
