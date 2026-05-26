@@ -37,6 +37,12 @@ const sidebarGroups = [
 				icon: BarChart3,
 				badge: null,
 			},
+			{
+				title: "Dashboard Operativo",
+				href: "/dashboard/operativo",
+				icon: BarChart3,
+				badge: null,
+			},
 		],
 	},
 	{
