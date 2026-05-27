@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
 	LayoutDashboard,
-	Settings,
-	Users,
 	BarChart3,
 	ChevronLeft,
 	ChevronRight,
@@ -48,18 +46,6 @@ const sidebarGroups = [
 	{
 		title: "Administración",
 		items: [
-			{
-				title: "Configuración",
-				href: "/dashboard/configuracion",
-				icon: Settings,
-				badge: null,
-			},
-			{
-				title: "Usuarios",
-				href: "/dashboard/usuarios",
-				icon: Users,
-				badge: "12",
-			},
 			{
 				title: "Ayuda",
 				href: "/dashboard/ayuda",
