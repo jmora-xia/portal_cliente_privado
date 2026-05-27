@@ -9,13 +9,9 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuLabel,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { AppSwitcher } from "./app-switcher";
-import { ThemeToggle } from "@/components/theme-toggle";
 
 
 
@@ -44,12 +40,6 @@ export function Topbar() {
 
 			{/* Right Section */}
 			<div className="flex items-center gap-3">
-				{/* App Switcher */}
-				<AppSwitcher />
-
-				{/* Theme Toggle */}
-				<ThemeToggle />
-
 				{/* Notifications */}
 				<Button
 					variant="ghost"
@@ -78,34 +68,7 @@ export function Topbar() {
 							</Avatar>
 						</Button>
 					</DropdownMenuTrigger>
-					<DropdownMenuContent className="w-64 p-2" align="end" forceMount>
-						<DropdownMenuLabel className="font-normal p-3">
-							<div className="flex items-center gap-3">
-								<Avatar className="h-10 w-10">
-									<AvatarImage src={user?.photoURL ?? "/avatar.png"} alt={user?.displayName ?? ""} />
-									<AvatarFallback className="bg-primary text-primary-foreground">
-										{initials}
-									</AvatarFallback>
-								</Avatar>
-								<div className="flex flex-col space-y-1">
-									<p className="text-sm font-medium leading-none">{user?.displayName ?? "Usuario"}</p>
-									<p className="text-xs leading-none text-muted-foreground">
-										{user?.email ?? ""}
-									</p>
-								</div>
-							</div>
-						</DropdownMenuLabel>
-						<DropdownMenuSeparator className="my-2" />
-						<DropdownMenuItem className="p-3 cursor-pointer hover:bg-muted rounded-md transition-colors">
-							<span className="flex items-center gap-2">👤 Perfil</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem className="p-3 cursor-pointer hover:bg-muted rounded-md transition-colors">
-							<span className="flex items-center gap-2">⚙️ Configuración</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem className="p-3 cursor-pointer hover:bg-muted rounded-md transition-colors">
-							<span className="flex items-center gap-2">💳 Facturación</span>
-						</DropdownMenuItem>
-						<DropdownMenuSeparator className="my-2" />
+					<DropdownMenuContent className="w-48 p-2" align="end" forceMount>
 						<DropdownMenuItem onClick={handleSignOut} className="p-3 cursor-pointer text-red-600 hover:bg-red-50 hover:text-red-700 rounded-md transition-colors">
 							<span className="flex items-center gap-2">🚪 Cerrar sesión</span>
 						</DropdownMenuItem>
